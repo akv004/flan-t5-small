@@ -10,3 +10,6 @@ pip install --upgrade bitsandbytes peft transformers
 
 pip install fastapi uvicorn transformers
 pip install sentencepiece
+
+
+pip install faker

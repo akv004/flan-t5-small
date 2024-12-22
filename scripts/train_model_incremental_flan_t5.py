@@ -5,11 +5,12 @@ from pathlib import Path
 from transformers import (
     T5Tokenizer,
     T5ForConditionalGeneration,
-    Trainer,
-    TrainingArguments,
+    Seq2SeqTrainer,
+    Seq2SeqTrainingArguments,
     DataCollatorForSeq2Seq,
 )
 from datasets import load_dataset
+from peft import get_peft_model, LoraConfig, TaskType
 
 # Print GPU memory usage
 def print_memory_stats():
@@ -44,10 +45,7 @@ else:
     base_model_path = models_dir / "base_model"
 
 # Generate new versioned fine-tuned model directory
-if latest_model:
-    new_version = int(re.search(r"\d+", latest_model.name).group()) + 1
-else:
-    new_version = 1
+new_version = int(re.search(r"\d+", latest_model.name).group()) + 1 if latest_model else 1
 fine_tuned_model_path = models_dir / f"fine_tuned_model_v{new_version}"
 
 # Check if training data exists
@@ -65,57 +63,65 @@ print(f"Loading tokenizer and model from: {base_model_path}")
 tokenizer = T5Tokenizer.from_pretrained(str(base_model_path))
 model = T5ForConditionalGeneration.from_pretrained(str(base_model_path))
 
+# Apply LoRA
+peft_config = LoraConfig(
+    task_type=TaskType.SEQ_2_SEQ_LM,
+    inference_mode=False,
+    r=8,
+    lora_alpha=32,
+    lora_dropout=0.1,
+)
+model = get_peft_model(model, peft_config)
+
 # Tokenize the dataset
 def tokenize_function(examples):
     input_texts = []
     target_texts = []
-
-    for text in examples["text"]:  # Iterate over the batch
-        input_text, target_text = text.split("->")
-        input_texts.append(input_text.strip())
-        target_texts.append(target_text.strip())
+    for text in examples["text"]:
+        if "->" in text:
+            input_text, target_text = text.split("->")
+            input_texts.append(input_text.strip())
+            target_texts.append(target_text.strip())
 
     tokenized_inputs = tokenizer(input_texts, max_length=512, truncation=True, padding="max_length")
     tokenized_targets = tokenizer(target_texts, max_length=128, truncation=True, padding="max_length")
-
-
-
-    # Ensure labels are set
-    tokenized_inputs["labels"] = tokenized_targets["input_ids"]
+    labels = [
+        [(l if l != tokenizer.pad_token_id else -100) for l in label]
+        for label in tokenized_targets["input_ids"]
+    ]
+    tokenized_inputs["labels"] = labels
     return tokenized_inputs
-
 
 print("Tokenizing dataset...")
 tokenized_datasets = dataset.map(tokenize_function, batched=True, remove_columns=["text"])
 print("Sample tokenized input_ids:", tokenized_datasets["train"][0]["input_ids"])
 print("Sample tokenized labels:", tokenized_datasets["train"][0]["labels"])
 
-
 # Data collator for seq2seq tasks
 data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model)
 
 # Training arguments
-training_args = TrainingArguments(
-    output_dir=str(fine_tuned_model_path),    # Save new fine-tuned model here
-    evaluation_strategy="epoch",             # Evaluate after each epoch
-    save_strategy="epoch",                   # Save checkpoints at the end of each epoch
-    num_train_epochs=5,                      # Number of epochs
-    per_device_train_batch_size=8,           # Batch size
-    save_total_limit=2,                      # Limit total number of checkpoints
-    logging_dir=str(script_dir / "../logs"), # Directory for logs
-    logging_steps=10,                        # Log every 10 steps
-    learning_rate=5e-5,                      # Learning rate
-    fp16=False,                               # Use mixed precision (requires GPU)
-    dataloader_num_workers=2,                # Number of workers for data loading
-    load_best_model_at_end=True,             # Load the best model at the end of training
-    metric_for_best_model="eval_loss",       # Metric to use for selecting the best model
-    greater_is_better=False,                 # Lower loss is better
+training_args = Seq2SeqTrainingArguments(
+    output_dir=str(fine_tuned_model_path),
+    evaluation_strategy="epoch",
+    save_strategy="epoch",
+    num_train_epochs=10,
+    per_device_train_batch_size=8,
+    save_total_limit=2,
+    logging_dir=str(script_dir / "../logs"),
+    logging_steps=10,
+    learning_rate=1e-4,
+    fp16=False,
+    dataloader_num_workers=2,
+    load_best_model_at_end=True,
+    metric_for_best_model="eval_loss",
+    predict_with_generate=True,
+    greater_is_better=False,
 )
-
 
 # Initialize the Trainer
 print("Initializing Trainer...")
-trainer = Trainer(
+trainer = Seq2SeqTrainer(
     model=model,
     args=training_args,
     train_dataset=tokenized_datasets["train"],

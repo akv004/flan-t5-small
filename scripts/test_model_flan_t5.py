@@ -1,23 +1,34 @@
 import os
+import re
 import torch
 from transformers import T5ForConditionalGeneration, T5Tokenizer
+from pathlib import Path
 
 # Check if GPU is available
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# Resolve paths relative to this script
-script_dir = os.path.dirname(os.path.abspath(__file__))  # Get the directory of this script
-model_path = os.path.join(script_dir, "../models/fine_tuned_model/")  # Adjust as needed
+# Paths
+script_dir = Path(__file__).resolve().parent
+models_dir = script_dir / "../models"
 
-# Verify the resolved model path
-if not os.path.exists(model_path):
-    raise FileNotFoundError(f"Model directory not found at: {model_path}")
+# Find the latest fine-tuned model
+def find_latest_model():
+    model_dirs = [d for d in models_dir.iterdir() if d.is_dir()]
+    fine_tuned_dirs = [d for d in model_dirs if re.match(r"fine_tuned_model_v\d+", d.name)]
+    if not fine_tuned_dirs:
+        raise FileNotFoundError("No fine-tuned model found in the models directory.")
+    fine_tuned_dirs.sort(key=lambda x: int(re.search(r"\d+", x.name).group()), reverse=True)
+    return fine_tuned_dirs[0]
+
+# Resolve model path
+latest_model_path = find_latest_model()
+print(f"Using latest fine-tuned model: {latest_model_path}")
 
 # Load the fine-tuned model and tokenizer
-print(f"Loading model from: {model_path}")
-model = T5ForConditionalGeneration.from_pretrained(model_path, device_map="auto", torch_dtype=torch.float16)
-tokenizer = T5Tokenizer.from_pretrained(model_path)
+print(f"Loading model from: {latest_model_path}")
+model = T5ForConditionalGeneration.from_pretrained(str(latest_model_path), device_map="auto", torch_dtype=torch.float16)
+tokenizer = T5Tokenizer.from_pretrained(str(latest_model_path))
 
 # Move the model to the appropriate device
 model.to(device)
