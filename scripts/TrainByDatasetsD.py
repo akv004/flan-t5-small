@@ -11,7 +11,7 @@ from transformers import (
     TrainerCallback
 )
 from datasets import load_dataset
-
+from peft import get_peft_model, LoraConfig, TaskType
 # Print GPU memory usage
 def print_memory_stats():
     if torch.cuda.is_available():
@@ -61,6 +61,18 @@ dataset = dataset["train"].train_test_split(test_size=0.1)  # Use 10% as validat
 print(f"Loading tokenizer and model from: {base_model_path}")
 tokenizer = T5Tokenizer.from_pretrained(str(base_model_path))
 model = T5ForConditionalGeneration.from_pretrained(str(base_model_path))
+
+
+
+# Apply LoRA
+peft_config = LoraConfig(
+    task_type=TaskType.SEQ_2_SEQ_LM,
+    inference_mode=False,
+    r=8,
+    lora_alpha=32,
+    lora_dropout=0.1,
+)
+model = get_peft_model(model, peft_config)
 
 # Preprocess the dataset
 def preprocess_data(examples):
