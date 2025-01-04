@@ -8,8 +8,8 @@ from transformers import (
 )
 import os
 
-BASE_MODEL = "../models/gpt2_json_model"  # or "gpt2-medium"/"EleutherAI/gpt-neo-125M"
-OUTPUT_DIR = "../models/gpt2_json_model_v1"
+BASE_MODEL = "gpt2"  # or "gpt2-medium"/"EleutherAI/gpt-neo-125M"
+OUTPUT_DIR = "./models/gpt2_json_model"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Minimal data
